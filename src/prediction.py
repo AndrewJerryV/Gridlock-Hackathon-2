@@ -62,7 +62,7 @@ def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, dict]:
     feature_cols = [
         "hour", "weekday", "is_weekend", "month",
         "vehicle_type_enc", "junction_name_enc",
-        "historical_violation_count", "cluster_id",
+        "historical_violation_count",
     ]
 
     # Filter to only rows with required features
@@ -186,12 +186,12 @@ def load_model(model_name: str = "best", model_dir: str = "models"):
 
 def predict_single(model, hour, weekday, is_weekend, month,
                    vehicle_type_enc, junction_name_enc,
-                   historical_count, cluster_id):
+                   historical_count, cluster_id=None):
     """Predict hotspot probability for a single input."""
     features = np.array([[
         hour, weekday, is_weekend, month,
         vehicle_type_enc, junction_name_enc,
-        historical_count, cluster_id,
+        historical_count,
     ]])
     prob = model.predict_proba(features)[0][1]
     return prob

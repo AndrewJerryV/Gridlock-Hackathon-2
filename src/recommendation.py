@@ -63,11 +63,10 @@ def generate_recommendations(
                         jn_enc = 0
 
                 hist_count = len(junc_data)
-                cluster_id = int(junc_data["cluster_id"].mode().iloc[0]) if "cluster_id" in junc_data.columns else -1
 
                 features = np.array([[
                     common_hour, common_weekday, is_weekend, common_month,
-                    vt_enc, jn_enc, hist_count, cluster_id,
+                    vt_enc, jn_enc, hist_count,
                 ]])
                 prob = float(model.predict_proba(features)[0][1])
                 probs.append(prob)

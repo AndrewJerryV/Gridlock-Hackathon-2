@@ -85,7 +85,24 @@ Predicts: *"Will a hotspot form at this junction in the next hour?"*
 - Generates patrol deployment recommendations
 - Critical / Elevated / Routine zone classification
 
-### 6. Advanced Analytics
+### 6. Resource-Constrained Dispatch Optimizer *(NEW)*
+- Greedy knapsack-style algorithm for limited patrol/tow units
+- Selects optimal junction combination to maximise congestion relief
+- Cumulative PCRI relief tracking with estimated congestion reduction %
+- Visual deployment route with numbered dispatch order
+
+### 7. What-If Impact Simulator *(NEW)*
+- Interactive junction selection for simulated enforcement clearance
+- Before vs. After network-wide PCRI comparison
+- Projected high-risk zone elimination metrics
+- Grouped bar chart visualization of simulated impact
+
+### 8. Export Dispatch Briefing *(NEW)*
+- One-click downloadable `.txt` dispatch briefing for control room operators
+- Includes optimised dispatch plan, projected impact, and full priority list
+- Field officer instructions for immediate operational deployment
+
+### 9. Advanced Analytics
 - **Temporal Analysis:** Peak hours, days, monthly trends
 - **Forecasting:** Prophet-based 30-day violation forecast
 - **Anomaly Detection:** Isolation Forest for unusual activity
@@ -100,7 +117,7 @@ Predicts: *"Will a hotspot form at this junction in the next hour?"*
 | **🏠 Overview** | KPIs, trends, severity breakdown, SHAP insights |
 | **🗺️ Heatmap** | Interactive Folium maps with hotspot clusters & PCRI overlay |
 | **🔮 Prediction** | Live hotspot prediction + model performance comparison |
-| **🚔 Enforcement** | Ranked patrol deployment recommendations |
+| **🚔 Enforcement** | Ranked priorities, dispatch optimizer, what-if simulator, briefing export |
 | **📊 Analytics** | Deep temporal, vehicle, station & anomaly analysis |
 
 ---

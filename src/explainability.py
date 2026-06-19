@@ -24,6 +24,8 @@ def compute_shap_values(model, X_sample: pd.DataFrame, model_type: str = "xgboos
     # For binary classification, pick positive class
     if isinstance(shap_values, list) and len(shap_values) == 2:
         shap_values = shap_values[1]
+    elif hasattr(shap_values, "ndim") and shap_values.ndim == 3:
+        shap_values = shap_values[:, :, 1]
 
     return explainer, shap_values
 

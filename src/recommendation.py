@@ -136,3 +136,220 @@ def get_priority_zones(recs: pd.DataFrame) -> dict:
         subset = recs[recs["priority_zone"] == zone]
         zones[zone] = subset[group_col].tolist()
     return zones
+
+
+# ─── Feature 1: Resource-Constrained Dispatch Engine ──────────
+
+def optimize_dispatch(
+    recs: pd.DataFrame,
+    available_units: int = 5,
+) -> pd.DataFrame:
+    """
+    Greedy knapsack-style optimizer: given a limited number of patrol/tow
+    units, select the combination of junctions that maximises total
+    congestion relief (sum of enforcement_priority).
+
+    Each junction is assumed to require 1 unit. The algorithm simply
+    picks the top-N by enforcement_priority, which is optimal for a
+    unit-weight knapsack.
+
+    Returns a DataFrame of selected junctions with cumulative stats.
+    """
+    if len(recs) == 0 or available_units <= 0:
+        return pd.DataFrame()
+
+    group_col = "junction_name" if "junction_name" in recs.columns else recs.columns[0]
+
+    # Sort by enforcement_priority descending (already sorted, but be safe)
+    ranked = recs.sort_values("enforcement_priority", ascending=False).head(available_units).copy()
+    ranked = ranked.reset_index(drop=True)
+    ranked["dispatch_order"] = range(1, len(ranked) + 1)
+
+    # Cumulative PCRI relief
+    ranked["cumulative_pcri_relief"] = ranked["pcri"].cumsum().round(1)
+
+    # Estimated congestion reduction %  (heuristic: each cleared junction
+    # removes its share of the total PCRI from the network)
+    total_pcri = recs["pcri"].sum()
+    if total_pcri > 0:
+        ranked["est_congestion_reduction_pct"] = (
+            ranked["cumulative_pcri_relief"] / total_pcri * 100
+        ).round(1)
+    else:
+        ranked["est_congestion_reduction_pct"] = 0.0
+
+    return ranked
+
+
+# ─── Feature 2: What-If Impact Simulator ─────────────────────
+
+def simulate_clearance(
+    junction_pcri: pd.DataFrame,
+    cleared_junctions: list[str],
+) -> pd.DataFrame:
+    """
+    Simulate clearing enforcement at selected junctions and recalculate
+    network-wide impact.
+
+    Returns a copy of junction_pcri with:
+      - cleared junctions PCRI set to 0
+      - a new 'pcri_delta' column showing the change
+      - updated network-level stats
+    """
+    if junction_pcri is None or len(junction_pcri) == 0:
+        return junction_pcri
+
+    group_col = "junction_name" if "junction_name" in junction_pcri.columns else junction_pcri.columns[0]
+
+    simulated = junction_pcri.copy()
+    simulated["original_pcri"] = simulated["pcri"]
+    simulated["is_cleared"] = simulated[group_col].isin(cleared_junctions)
+
+    # Cleared junctions drop to 0 PCRI
+    simulated.loc[simulated["is_cleared"], "pcri"] = 0.0
+
+    # Recalculate risk_level
+    simulated["risk_level"] = pd.cut(
+        simulated["pcri"],
+        bins=[-1, 33, 66, 101],
+        labels=["Low", "Medium", "High"],
+    )
+
+    # Delta
+    simulated["pcri_delta"] = simulated["pcri"] - simulated["original_pcri"]
+
+    return simulated
+
+
+def get_clearance_impact(
+    original_pcri: pd.DataFrame,
+    simulated_pcri: pd.DataFrame,
+) -> dict:
+    """Compute before/after network statistics for the what-if simulation."""
+    orig_total = original_pcri["pcri"].sum()
+    sim_total = simulated_pcri["pcri"].sum()
+
+    orig_high = len(original_pcri[original_pcri["risk_level"] == "High"])
+    sim_high = len(simulated_pcri[simulated_pcri["risk_level"] == "High"])
+
+    orig_mean = original_pcri["pcri"].mean()
+    sim_mean = simulated_pcri["pcri"].mean()
+
+    reduction_pct = ((orig_total - sim_total) / orig_total * 100) if orig_total > 0 else 0
+
+    return {
+        "original_total_pcri": round(orig_total, 1),
+        "simulated_total_pcri": round(sim_total, 1),
+        "pcri_reduction_pct": round(reduction_pct, 1),
+        "original_high_risk": orig_high,
+        "simulated_high_risk": sim_high,
+        "high_risk_eliminated": orig_high - sim_high,
+        "original_mean_pcri": round(orig_mean, 1),
+        "simulated_mean_pcri": round(sim_mean, 1),
+    }
+
+
+# ─── Feature 3: Dispatch Briefing Generator ──────────────────
+
+def generate_dispatch_briefing(
+    recs: pd.DataFrame,
+    dispatch_plan: pd.DataFrame = None,
+    impact: dict = None,
+) -> str:
+    """
+    Generate a formatted text dispatch briefing for download by
+    control room operators and field officers.
+
+    Parameters
+    ----------
+    recs : Full recommendation DataFrame
+    dispatch_plan : Output of optimize_dispatch (constrained plan)
+    impact : Output of get_clearance_impact (what-if stats)
+
+    Returns
+    -------
+    Formatted string ready for download as .txt
+    """
+    from datetime import datetime
+
+    now = datetime.now().strftime("%d %B %Y, %I:%M %p IST")
+    group_col = "junction_name" if "junction_name" in recs.columns else recs.columns[0]
+
+    lines = []
+    lines.append("=" * 64)
+    lines.append("  PARKIQ — DAILY ENFORCEMENT DISPATCH BRIEFING")
+    lines.append("  Bengaluru Traffic Police — AI Parking Intelligence")
+    lines.append(f"  Generated: {now}")
+    lines.append("=" * 64)
+    lines.append("")
+
+    # ── Section 1: Optimised Dispatch Plan ──
+    if dispatch_plan is not None and len(dispatch_plan) > 0:
+        lines.append("─" * 64)
+        lines.append(f"  OPTIMISED DISPATCH PLAN  ({len(dispatch_plan)} Units Deployed)")
+        lines.append("─" * 64)
+        lines.append("")
+        lines.append(f"  {'#':<4} {'Junction':<35} {'Priority':>8}  {'Zone':>10}")
+        lines.append(f"  {'─'*4} {'─'*35} {'─'*8}  {'─'*10}")
+
+        for _, row in dispatch_plan.iterrows():
+            order = int(row["dispatch_order"])
+            junc = str(row[group_col])[:35]
+            priority = row["enforcement_priority"]
+            zone = row.get("priority_zone", "—")
+            lines.append(f"  {order:<4} {junc:<35} {priority:>8.1f}  {zone:>10}")
+
+        lines.append("")
+        total_relief = dispatch_plan["pcri"].sum()
+        est_pct = dispatch_plan["est_congestion_reduction_pct"].iloc[-1] if len(dispatch_plan) > 0 else 0
+        lines.append(f"  Total PCRI Relief:           {total_relief:.1f}")
+        lines.append(f"  Est. Congestion Reduction:   {est_pct:.1f}%")
+        lines.append("")
+
+    # ── Section 2: Impact Projection ──
+    if impact is not None:
+        lines.append("─" * 64)
+        lines.append("  PROJECTED IMPACT (What-If Analysis)")
+        lines.append("─" * 64)
+        lines.append("")
+        lines.append(f"  Network PCRI Before:    {impact['original_total_pcri']}")
+        lines.append(f"  Network PCRI After:     {impact['simulated_total_pcri']}")
+        lines.append(f"  Reduction:              {impact['pcri_reduction_pct']}%")
+        lines.append(f"  High-Risk Before:       {impact['original_high_risk']} junctions")
+        lines.append(f"  High-Risk After:        {impact['simulated_high_risk']} junctions")
+        lines.append(f"  High-Risk Eliminated:   {impact['high_risk_eliminated']} junctions")
+        lines.append("")
+
+    # ── Section 3: Full Priority List ──
+    lines.append("─" * 64)
+    lines.append("  FULL JUNCTION PRIORITY LIST")
+    lines.append("─" * 64)
+    lines.append("")
+    lines.append(f"  {'Rank':<5} {'Junction':<30} {'PCRI':>6} {'Prob%':>6} {'Priority':>8}  {'Zone':>10}")
+    lines.append(f"  {'─'*5} {'─'*30} {'─'*6} {'─'*6} {'─'*8}  {'─'*10}")
+
+    for _, row in recs.iterrows():
+        rank = int(row.get("rank", 0))
+        junc = str(row[group_col])[:30]
+        pcri = row.get("pcri", 0)
+        prob = row.get("hotspot_probability_pct", 0)
+        priority = row.get("enforcement_priority", 0)
+        zone = row.get("priority_zone", "—")
+        lines.append(f"  {rank:<5} {junc:<30} {pcri:>6.1f} {prob:>6.1f} {priority:>8.1f}  {zone:>10}")
+
+    lines.append("")
+    lines.append("─" * 64)
+    lines.append("  INSTRUCTIONS FOR FIELD OFFICERS")
+    lines.append("─" * 64)
+    lines.append("")
+    lines.append("  1. Deploy units in dispatch order (#1 first, then #2, etc.)")
+    lines.append("  2. CRITICAL zones: Immediate towing + challan issuance")
+    lines.append("  3. ELEVATED zones: Patrol + warning, escalate if persistent")
+    lines.append("  4. ROUTINE zones: Include in regular patrol cycle")
+    lines.append("  5. Report clearance status back to control room via radio")
+    lines.append("")
+    lines.append("=" * 64)
+    lines.append("  END OF BRIEFING — ParkIQ AI Parking Intelligence")
+    lines.append("=" * 64)
+
+    return "\n".join(lines)

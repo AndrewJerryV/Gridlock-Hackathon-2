@@ -23,6 +23,14 @@ def prepare_prophet_data(df: pd.DataFrame) -> pd.DataFrame:
     daily = df.groupby("date")["id"].count().reset_index()
     daily.columns = ["ds", "y"]
     daily["ds"] = pd.to_datetime(daily["ds"])
+    
+    # Shift dates to current year (2026) to match hackathon timeline
+    if len(daily) > 0:
+        max_date = daily["ds"].max()
+        target_end_date = pd.to_datetime("2026-06-19")
+        offset = target_end_date - max_date
+        daily["ds"] = daily["ds"] + offset
+
     daily = daily.sort_values("ds").reset_index(drop=True)
     return daily
 

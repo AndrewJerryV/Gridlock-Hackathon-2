@@ -17,7 +17,7 @@ import xgboost as xgb
 import joblib
 
 
-def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, dict]:
+def prepare_features(df: pd.DataFrame, encoders: dict = None) -> tuple[pd.DataFrame, pd.Series, dict]:
     """
     Build feature matrix for hotspot prediction.
 
@@ -27,42 +27,85 @@ def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, dict]:
     - hour, weekday, is_weekend, month
     - vehicle_type (encoded)
     - junction_name (encoded)
+    - police_station (encoded)
     - historical_violation_count (per junction)
-    - cluster_id
+    - junc_hour_count (violation count per junction and hour)
+    - junc_weekday_count (violation count per junction and weekday)
     """
     data = df.copy()
 
     # Target
     data["is_hotspot"] = (data["cluster_id"] != -1).astype(int)
 
-    # Historical violation count per junction
+    # Historical violation counts
     if "junction_name" in data.columns:
         junc_counts = data.groupby("junction_name")["id"].transform("count")
         data["historical_violation_count"] = junc_counts
+        
+        # Junction-hour violation count (frequency at this specific hour)
+        junc_hour_counts = data.groupby(["junction_name", "hour"])["id"].transform("count")
+        data["junc_hour_count"] = junc_hour_counts
+        
+        # Junction-weekday violation count
+        junc_weekday_counts = data.groupby(["junction_name", "weekday"])["id"].transform("count")
+        data["junc_weekday_count"] = junc_weekday_counts
     else:
         data["historical_violation_count"] = 0
+        data["junc_hour_count"] = 0
+        data["junc_weekday_count"] = 0
 
     # Encode categoricals
-    encoders = {}
+    out_encoders = {}
 
     if "vehicle_type" in data.columns:
-        le_vt = LabelEncoder()
-        data["vehicle_type_enc"] = le_vt.fit_transform(data["vehicle_type"].astype(str))
-        encoders["vehicle_type"] = le_vt
+        if encoders and "vehicle_type" in encoders:
+            le_vt = encoders["vehicle_type"]
+            classes = set(le_vt.classes_)
+            data["vehicle_type_enc"] = data["vehicle_type"].astype(str).apply(
+                lambda x: le_vt.transform([x])[0] if x in classes else 0
+            )
+            out_encoders["vehicle_type"] = le_vt
+        else:
+            le_vt = LabelEncoder()
+            data["vehicle_type_enc"] = le_vt.fit_transform(data["vehicle_type"].astype(str))
+            out_encoders["vehicle_type"] = le_vt
     else:
         data["vehicle_type_enc"] = 0
 
     if "junction_name" in data.columns:
-        le_jn = LabelEncoder()
-        data["junction_name_enc"] = le_jn.fit_transform(data["junction_name"].astype(str))
-        encoders["junction_name"] = le_jn
+        if encoders and "junction_name" in encoders:
+            le_jn = encoders["junction_name"]
+            classes = set(le_jn.classes_)
+            data["junction_name_enc"] = data["junction_name"].astype(str).apply(
+                lambda x: le_jn.transform([x])[0] if x in classes else 0
+            )
+            out_encoders["junction_name"] = le_jn
+        else:
+            le_jn = LabelEncoder()
+            data["junction_name_enc"] = le_jn.fit_transform(data["junction_name"].astype(str))
+            out_encoders["junction_name"] = le_jn
     else:
         data["junction_name_enc"] = 0
 
+    if "police_station" in data.columns:
+        if encoders and "police_station" in encoders:
+            le_ps = encoders["police_station"]
+            classes = set(le_ps.classes_)
+            data["police_station_enc"] = data["police_station"].astype(str).apply(
+                lambda x: le_ps.transform([x])[0] if x in classes else 0
+            )
+            out_encoders["police_station"] = le_ps
+        else:
+            le_ps = LabelEncoder()
+            data["police_station_enc"] = le_ps.fit_transform(data["police_station"].astype(str))
+            out_encoders["police_station"] = le_ps
+    else:
+        data["police_station_enc"] = 0
+
     feature_cols = [
         "hour", "weekday", "is_weekend", "month",
-        "vehicle_type_enc", "junction_name_enc",
-        "historical_violation_count",
+        "vehicle_type_enc", "junction_name_enc", "police_station_enc",
+        "historical_violation_count", "junc_hour_count", "junc_weekday_count"
     ]
 
     # Filter to only rows with required features
@@ -70,7 +113,7 @@ def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, dict]:
     X = data[available].fillna(0)
     y = data["is_hotspot"]
 
-    return X, y, encoders
+    return X, y, out_encoders
 
 
 def train_models(
@@ -89,11 +132,12 @@ def train_models(
 
     # --- XGBoost ---
     xgb_model = xgb.XGBClassifier(
-        n_estimators=200,
-        max_depth=6,
-        learning_rate=0.1,
+        n_estimators=300,
+        max_depth=8,
+        learning_rate=0.15,
         subsample=0.8,
         colsample_bytree=0.8,
+        scale_pos_weight=1.5,
         random_state=random_state,
         use_label_encoder=False,
         eval_metric="logloss",
@@ -117,8 +161,9 @@ def train_models(
 
     # --- Random Forest ---
     rf_model = RandomForestClassifier(
-        n_estimators=200,
-        max_depth=12,
+        n_estimators=300,
+        max_depth=18,
+        class_weight="balanced",
         random_state=random_state,
         n_jobs=-1,
     )
@@ -166,6 +211,21 @@ def save_models(results: dict, encoders: dict, output_dir: str = "models"):
     meta_path = os.path.join(output_dir, "best_model.txt")
     with open(meta_path, "w") as f:
         f.write(results["best_model_name"])
+
+    # Save precomputed evaluation metrics
+    metrics_data = []
+    for name in ["xgboost", "random_forest"]:
+        metrics_data.append({
+            "Model": name.replace("_", " ").title(),
+            "Accuracy": results[name]["accuracy"],
+            "Precision": results[name]["precision"],
+            "Recall": results[name]["recall"],
+            "F1 Score": results[name]["f1"],
+            "ROC-AUC": results[name]["roc_auc"],
+        })
+    metrics_path = os.path.join(output_dir, "metrics.pkl")
+    joblib.dump(metrics_data, metrics_path)
+    print(f"[INFO] Saved precomputed metrics to {metrics_path}")
 
 
 def load_model(model_name: str = "best", model_dir: str = "models"):

@@ -28,9 +28,16 @@ def prepare_features(df: pd.DataFrame, encoders: dict = None) -> tuple[pd.DataFr
     - vehicle_type (encoded)
     - junction_name (encoded)
     - police_station (encoded)
+    - violation_type_clean (encoded)
     - historical_violation_count (per junction)
     - junc_hour_count (violation count per junction and hour)
     - junc_weekday_count (violation count per junction and weekday)
+    - junc_month_count (violation count per junction and month)
+    - junc_veh_count (violation count per junction and vehicle type)
+    - veh_hour_count (violation count per vehicle type and hour)
+    - stat_hour_count (violation count per police station and hour)
+    - junc_hour_veh_count (violation count per junction, hour, and vehicle type)
+    - junc_hour_vtc_count (violation count per junction, hour, and violation type)
     """
     data = df.copy()
 
@@ -49,10 +56,76 @@ def prepare_features(df: pd.DataFrame, encoders: dict = None) -> tuple[pd.DataFr
         # Junction-weekday violation count
         junc_weekday_counts = data.groupby(["junction_name", "weekday"])["id"].transform("count")
         data["junc_weekday_count"] = junc_weekday_counts
+        
+        # Junction-month violation count
+        junc_month_counts = data.groupby(["junction_name", "month"])["id"].transform("count")
+        data["junc_month_count"] = junc_month_counts
     else:
         data["historical_violation_count"] = 0
         data["junc_hour_count"] = 0
         data["junc_weekday_count"] = 0
+        data["junc_month_count"] = 0
+
+    # Junction-vehicle type interaction
+    if "junction_name" in data.columns and "vehicle_type" in data.columns:
+        junc_veh_counts = data.groupby(["junction_name", "vehicle_type"])["id"].transform("count")
+        data["junc_veh_count"] = junc_veh_counts
+        
+        # Junction-hour-vehicle type three-way interaction
+        junc_hour_veh_counts = data.groupby(["junction_name", "hour", "vehicle_type"])["id"].transform("count")
+        data["junc_hour_veh_count"] = junc_hour_veh_counts
+    else:
+        data["junc_veh_count"] = 0
+        data["junc_hour_veh_count"] = 0
+        
+    # Junction-hour-violation type clean three-way interaction
+    if "junction_name" in data.columns and "violation_type_clean" in data.columns and "hour" in data.columns:
+        junc_hour_vtc_counts = data.groupby(["junction_name", "hour", "violation_type_clean"])["id"].transform("count")
+        data["junc_hour_vtc_count"] = junc_hour_vtc_counts
+    else:
+        data["junc_hour_vtc_count"] = 0
+
+    # Vehicle-hour interaction
+    if "vehicle_type" in data.columns:
+        veh_hour_counts = data.groupby(["vehicle_type", "hour"])["id"].transform("count")
+        data["veh_hour_count"] = veh_hour_counts
+    else:
+        data["veh_hour_count"] = 0
+        
+    # Station-hour interaction
+    if "police_station" in data.columns:
+        stat_hour_counts = data.groupby(["police_station", "hour"])["id"].transform("count")
+        data["stat_hour_count"] = stat_hour_counts
+    else:
+        data["stat_hour_count"] = 0
+
+    # Extra features
+    if "junction_name" in data.columns and "hour" in data.columns:
+        data["junc_weekday_hour_count"] = data.groupby(["junction_name", "weekday", "hour"])["id"].transform("count")
+        data["junc_month_hour_count"] = data.groupby(["junction_name", "month", "hour"])["id"].transform("count")
+    else:
+        data["junc_weekday_hour_count"] = 0
+        data["junc_month_hour_count"] = 0
+
+    if "junction_name" in data.columns and "vehicle_type" in data.columns and "violation_type_clean" in data.columns:
+        data["junc_veh_vtc_count"] = data.groupby(["junction_name", "vehicle_type", "violation_type_clean"])["id"].transform("count")
+    else:
+        data["junc_veh_vtc_count"] = 0
+
+    if "vehicle_type" in data.columns and "hour" in data.columns:
+        data["veh_weekday_hour_count"] = data.groupby(["vehicle_type", "weekday", "hour"])["id"].transform("count")
+    else:
+        data["veh_weekday_hour_count"] = 0
+
+    if "police_station" in data.columns and "hour" in data.columns:
+        data["stat_weekday_hour_count"] = data.groupby(["police_station", "weekday", "hour"])["id"].transform("count")
+    else:
+        data["stat_weekday_hour_count"] = 0
+
+    if "vehicle_type" in data.columns and "violation_type_clean" in data.columns:
+        data["veh_vtc_count"] = data.groupby(["vehicle_type", "violation_type_clean"])["id"].transform("count")
+    else:
+        data["veh_vtc_count"] = 0
 
     # Encode categoricals
     out_encoders = {}
@@ -102,10 +175,30 @@ def prepare_features(df: pd.DataFrame, encoders: dict = None) -> tuple[pd.DataFr
     else:
         data["police_station_enc"] = 0
 
+    if "violation_type_clean" in data.columns:
+        if encoders and "violation_type_clean" in encoders:
+            le_vtc = encoders["violation_type_clean"]
+            classes = set(le_vtc.classes_)
+            data["violation_type_clean_enc"] = data["violation_type_clean"].astype(str).apply(
+                lambda x: le_vtc.transform([x])[0] if x in classes else 0
+            )
+            out_encoders["violation_type_clean"] = le_vtc
+        else:
+            le_vtc = LabelEncoder()
+            data["violation_type_clean_enc"] = le_vtc.fit_transform(data["violation_type_clean"].astype(str))
+            out_encoders["violation_type_clean"] = le_vtc
+    else:
+        data["violation_type_clean_enc"] = 0
+
     feature_cols = [
         "hour", "weekday", "is_weekend", "month",
-        "vehicle_type_enc", "junction_name_enc", "police_station_enc",
-        "historical_violation_count", "junc_hour_count", "junc_weekday_count"
+        "vehicle_type_enc", "junction_name_enc", "police_station_enc", "violation_type_clean_enc",
+        "historical_violation_count", "junc_hour_count", "junc_weekday_count", "junc_month_count",
+        "junc_veh_count", "veh_hour_count", "stat_hour_count",
+        "junc_hour_veh_count", "junc_hour_vtc_count",
+        "junc_weekday_hour_count", "junc_veh_vtc_count", "veh_weekday_hour_count", "stat_weekday_hour_count",
+        "veh_vtc_count", "junc_month_hour_count",
+        "latitude", "longitude"
     ]
 
     # Filter to only rows with required features
@@ -133,11 +226,11 @@ def train_models(
     # --- XGBoost ---
     xgb_model = xgb.XGBClassifier(
         n_estimators=300,
-        max_depth=8,
-        learning_rate=0.15,
+        max_depth=14,
+        learning_rate=0.1,
         subsample=0.8,
         colsample_bytree=0.8,
-        scale_pos_weight=1.5,
+        scale_pos_weight=1.2,
         random_state=random_state,
         use_label_encoder=False,
         eval_metric="logloss",
@@ -162,7 +255,8 @@ def train_models(
     # --- Random Forest ---
     rf_model = RandomForestClassifier(
         n_estimators=300,
-        max_depth=18,
+        max_depth=None,
+        min_samples_split=10,
         class_weight="balanced",
         random_state=random_state,
         n_jobs=-1,

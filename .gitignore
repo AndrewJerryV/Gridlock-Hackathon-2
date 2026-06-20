@@ -5,6 +5,8 @@ __pycache__/
 # Models (regenerated on training)
 models/
 
+parkiq_pitch_script.md
+
 # Processed data (regenerated from raw CSVs)
 data/processed_data.parquet
 

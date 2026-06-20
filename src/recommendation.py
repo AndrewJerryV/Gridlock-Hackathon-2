@@ -62,15 +62,85 @@ def generate_recommendations(
                     except ValueError:
                         jn_enc = 0
 
+                # 1. police_station_enc
+                ps_name = junc_data["police_station"].iloc[0] if "police_station" in junc_data.columns else "Unknown"
+                ps_enc = 0
+                if encoders and "police_station" in encoders:
+                    try:
+                        ps_enc = int(encoders["police_station"].transform([ps_name])[0])
+                    except ValueError:
+                        ps_enc = 0
+
+                # 2. violation_type_clean_enc
+                vtc_name = junc_data["violation_type_clean"].mode().iloc[0] if "violation_type_clean" in junc_data.columns else "WRONG PARKING"
+                vtc_enc = 0
+                if encoders and "violation_type_clean" in encoders:
+                    try:
+                        vtc_enc = int(encoders["violation_type_clean"].transform([vtc_name])[0])
+                    except ValueError:
+                        vtc_enc = 0
+
                 hist_count = len(junc_data)
+
+                # 3. junc_hour_count
+                junc_hour_count = len(junc_data[junc_data["hour"] == common_hour])
+
+                # 4. junc_weekday_count
+                junc_weekday_count = len(junc_data[junc_data["weekday"] == common_weekday])
+
+                # 5. junc_month_count
+                junc_month_count = len(junc_data[junc_data["month"] == common_month])
+
+                # 6. junc_veh_count
+                junc_veh_count = len(junc_data[junc_data["vehicle_type"] == common_vt]) if "vehicle_type" in junc_data.columns else 0
+
+                # 7. veh_hour_count
+                veh_hour_count = len(df[(df["vehicle_type"] == common_vt) & (df["hour"] == common_hour)]) if "vehicle_type" in df.columns else 0
+
+                # 8. stat_hour_count
+                stat_hour_count = len(df[(df["police_station"] == ps_name) & (df["hour"] == common_hour)]) if "police_station" in df.columns else 0
+
+                # 9. junc_hour_veh_count
+                junc_hour_veh_count = len(junc_data[(junc_data["hour"] == common_hour) & (junc_data["vehicle_type"] == common_vt)]) if "vehicle_type" in junc_data.columns else 0
+
+                # 10. junc_hour_vtc_count
+                junc_hour_vtc_count = len(junc_data[(junc_data["hour"] == common_hour) & (junc_data["violation_type_clean"] == vtc_name)]) if "violation_type_clean" in junc_data.columns else 0
+
+                # 11. junc_weekday_hour_count
+                junc_weekday_hour_count = len(junc_data[(junc_data["weekday"] == common_weekday) & (junc_data["hour"] == common_hour)])
+
+                # 12. junc_veh_vtc_count
+                junc_veh_vtc_count = len(junc_data[(junc_data["vehicle_type"] == common_vt) & (junc_data["violation_type_clean"] == vtc_name)]) if ("vehicle_type" in junc_data.columns and "violation_type_clean" in junc_data.columns) else 0
+
+                # 13. veh_weekday_hour_count
+                veh_weekday_hour_count = len(df[(df["vehicle_type"] == common_vt) & (df["weekday"] == common_weekday) & (df["hour"] == common_hour)]) if "vehicle_type" in df.columns else 0
+
+                # 14. stat_weekday_hour_count
+                stat_weekday_hour_count = len(df[(df["police_station"] == ps_name) & (df["weekday"] == common_weekday) & (df["hour"] == common_hour)]) if "police_station" in df.columns else 0
+
+                # 15. veh_vtc_count
+                veh_vtc_count = len(df[(df["vehicle_type"] == common_vt) & (df["violation_type_clean"] == vtc_name)]) if ("vehicle_type" in df.columns and "violation_type_clean" in df.columns) else 0
+
+                # 16. junc_month_hour_count
+                junc_month_hour_count = len(junc_data[(junc_data["month"] == common_month) & (junc_data["hour"] == common_hour)])
+
+                # 17. latitude & longitude
+                latitude = float(junc_data["latitude"].mean())
+                longitude = float(junc_data["longitude"].mean())
 
                 features = np.array([[
                     common_hour, common_weekday, is_weekend, common_month,
-                    vt_enc, jn_enc, hist_count,
+                    vt_enc, jn_enc, ps_enc, vtc_enc,
+                    hist_count, junc_hour_count, junc_weekday_count, junc_month_count,
+                    junc_veh_count, veh_hour_count, stat_hour_count,
+                    junc_hour_veh_count, junc_hour_vtc_count,
+                    junc_weekday_hour_count, junc_veh_vtc_count, veh_weekday_hour_count, stat_weekday_hour_count,
+                    veh_vtc_count, junc_month_hour_count,
+                    latitude, longitude
                 ]])
                 prob = float(model.predict_proba(features)[0][1])
                 probs.append(prob)
-            except Exception:
+            except Exception as e:
                 probs.append(0.5)
 
         recs["hotspot_probability"] = probs

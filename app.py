@@ -82,10 +82,14 @@ div[data-testid="stMetric"] {
     background: rgba(18, 20, 38, 0.7) !important;
     border: 1px solid rgba(56, 189, 248, 0.15) !important;
     border-radius: 18px !important;
-    padding: 16px 20px !important;
+    padding: 14px 18px !important;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
     backdrop-filter: blur(14px) !important;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    min-height: 120px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
 }
 div[data-testid="stMetric"]:hover {
     border-color: rgba(56, 189, 248, 0.3) !important;
@@ -97,12 +101,19 @@ div[data-testid="stMetric"] label {
     font-size: 0.75rem !important;
     text-transform: uppercase !important;
     letter-spacing: 0.8px !important;
+    margin-bottom: 4px !important;
 }
 div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
     color: #f1f5f9 !important;
     font-weight: 800 !important;
     font-size: 1.8rem !important;
     text-shadow: none !important;
+    line-height: 1.2 !important;
+}
+div[data-testid="stMetric"] div[data-testid="stMetricDelta"] {
+    margin-top: 4px !important;
+    display: flex !important;
+    align-items: center !important;
 }
 
 /* Premium Card Classes */
@@ -272,6 +283,8 @@ def custom_spinner(message, icon="fa-circle-notch", color="#38bdf8", animation="
 @st.cache_data(show_spinner=False)
 def load_all_data():
     """Load all preprocessed data. Run training if not available."""
+    # Cache buster to force Streamlit to reload the new 25-feature model from disk
+    _cache_buster = "v25_feature_model"
     data_dir = os.path.join(PROJECT_ROOT, "data")
     models_dir = os.path.join(PROJECT_ROOT, "models")
 
@@ -326,6 +339,12 @@ def load_all_data():
         if os.path.exists(mpath):
             metrics[mname] = {"name": mname}
 
+    # Precompute and cache enforcement recommendations
+    from src.recommendation import generate_recommendations
+    recs = generate_recommendations(
+        junction_pcri, df, model=model, encoders=encoders, top_n=20
+    )
+
     return {
         "df": df,
         "hotspot_stats": hotspot_stats,
@@ -338,6 +357,7 @@ def load_all_data():
         "model": model,
         "model_name": model_name,
         "encoders": encoders,
+        "recs": recs,
     }
 
 
@@ -373,15 +393,12 @@ def render_sidebar():
             label_visibility="collapsed",
         )
 
-        st.markdown("---")
         st.markdown(
             """
-            <div style='text-align:center; color:#64748b; font-size:0.75rem;'>
-            Flipkart Gridlock 2026<br/>
-            AI Parking Intelligence<br/>
-            <span style='color:#38bdf8;'>Stage 2 Submission</span><br/>
-            By: Andrew Jerry V<br/>
-            Theme: Poor Visibility on Parking-Induced Congestion
+            <div class="glass-card" style="padding:12px; margin-top:10px; border-color:rgba(56, 189, 248, 0.1); border-radius:12px; text-align:center; font-size:0.75rem; background:rgba(255,255,255,0.01);">
+                <div style="color:#38bdf8; font-weight:600; margin-bottom:4px; font-size:0.8rem;">Flipkart Gridlock 2026</div>
+                <div style="color:#94a3b8; font-size:0.7rem; margin-bottom:4px; line-height:1.25;">Theme: Poor Visibility on Parking-Induced Congestion</div>
+                <div style="color:#64748b; font-size:0.68rem; font-style:italic; margin-top:4px;">By Andrew Jerry V</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -710,11 +727,15 @@ def page_prediction(data):
     encoders = data["encoders"]
     model_name = data["model_name"]
 
-    st.markdown("### :material/online_prediction: Hotspot Prediction Engine")
-
-    if st.button("Refresh Data", key="refresh_button"):
-        st.cache_data.clear()
-        st.rerun()
+    col_title, col_refresh = st.columns([4, 1])
+    with col_title:
+        st.markdown("### :material/online_prediction: Hotspot Prediction Engine")
+    with col_refresh:
+        st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+        refresh_data_clicked = st.button("Refresh Data", key="refresh_button", icon=":material/refresh:", use_container_width=True)
+        if refresh_data_clicked:
+            st.cache_data.clear()
+            st.rerun()
     tab1, tab2, tab3 = st.tabs([":material/bolt: Live Prediction", ":material/analytics: Model Performance", ":material/traffic: Live Traffic Analysis"])
 
     with tab1:
@@ -1243,15 +1264,13 @@ def page_enforcement(data):
     st.markdown("### :material/local_police: Enforcement Recommendation Engine")
     st.markdown("AI-powered patrol deployment recommendations ranked by enforcement priority.")
 
-    # Generate recommendations
+    # Load precomputed recommendations
+    recs = data.get("recs", pd.DataFrame())
+
     from src.recommendation import (
-        generate_recommendations, get_priority_zones,
+        get_priority_zones,
         optimize_dispatch, simulate_clearance, get_clearance_impact,
         generate_dispatch_briefing,
-    )
-
-    recs = generate_recommendations(
-        junction_pcri, df, model=model, encoders=encoders, top_n=20
     )
 
     if len(recs) == 0:
@@ -1493,11 +1512,10 @@ def page_enforcement(data):
                 xaxis=dict(tickangle=-30, **PLOTLY_LAYOUT.get("xaxis", {})),
                 yaxis=dict(title="PCRI Score", **PLOTLY_LAYOUT.get("yaxis", {})),
                 yaxis2=dict(
-                    title="Cumulative Relief %",
+                    title=dict(text="Cumulative Relief %", font=dict(color="#c084fc")),
                     overlaying="y", side="right",
                     showgrid=False,
                     range=[0, 100],
-                    titlefont=dict(color="#c084fc"),
                     tickfont=dict(color="#c084fc"),
                 ),
                 legend=dict(bgcolor="rgba(0,0,0,0)", orientation="h", y=1.12, font=dict(color="#94a3b8")),
@@ -1563,7 +1581,7 @@ def page_enforcement(data):
             m1, m2, m3, m4 = st.columns(4)
             with m1:
                 st.markdown(f"""
-                <div class="glass-card" style="text-align:center; border-color:#38bdf840; margin:0;">
+                <div class="glass-card" style="text-align:center; border-color:#38bdf840; margin:0; height:100px; display:flex; flex-direction:column; justify-content:center;">
                     <div style="color:#94a3b8; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px;">Network PCRI</div>
                     <div style="display:flex; justify-content:center; align-items:center; gap:8px; margin-top:8px;">
                         <span style="color:#ef4444; font-size:1.4rem; font-weight:700;">{impact['original_total_pcri']}</span>
@@ -1575,15 +1593,15 @@ def page_enforcement(data):
 
             with m2:
                 st.markdown(f"""
-                <div class="glass-card" style="text-align:center; border-color:#22c55e40; margin:0;">
+                <div class="glass-card" style="text-align:center; border-color:#22c55e40; margin:0; height:100px; display:flex; flex-direction:column; justify-content:center;">
                     <div style="color:#94a3b8; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px;">PCRI Reduction</div>
-                    <div style="color:#22c55e; font-size:2rem; font-weight:800; margin-top:8px;">{impact['pcri_reduction_pct']}%</div>
+                    <div style="color:#22c55e; font-size:2rem; font-weight:800; margin-top:8px; line-height:1.2;">{impact['pcri_reduction_pct']}%</div>
                 </div>
                 """, unsafe_allow_html=True)
 
             with m3:
                 st.markdown(f"""
-                <div class="glass-card" style="text-align:center; border-color:#ef444440; margin:0;">
+                <div class="glass-card" style="text-align:center; border-color:#ef444440; margin:0; height:100px; display:flex; flex-direction:column; justify-content:center;">
                     <div style="color:#94a3b8; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px;">High-Risk Zones</div>
                     <div style="display:flex; justify-content:center; align-items:center; gap:8px; margin-top:8px;">
                         <span style="color:#ef4444; font-size:1.4rem; font-weight:700;">{impact['original_high_risk']}</span>
@@ -1595,7 +1613,7 @@ def page_enforcement(data):
 
             with m4:
                 st.markdown(f"""
-                <div class="glass-card" style="text-align:center; border-color:#c084fc40; margin:0;">
+                <div class="glass-card" style="text-align:center; border-color:#c084fc40; margin:0; height:100px; display:flex; flex-direction:column; justify-content:center;">
                     <div style="color:#94a3b8; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px;">Mean PCRI</div>
                     <div style="display:flex; justify-content:center; align-items:center; gap:8px; margin-top:8px;">
                         <span style="color:#f59e0b; font-size:1.4rem; font-weight:700;">{impact['original_mean_pcri']}</span>
@@ -1907,11 +1925,11 @@ def page_analytics(data):
 
         # Forecasting section
         st.markdown("---")
-        st.markdown("#### :material/trending_up: Violation Forecasting (Prophet)")
+        st.markdown("#### :material/trending_up: Violation Forecasting")
 
         if st.button("Generate 30-Day Forecast", icon=":material/online_prediction:", type="primary"):
             from src.forecasting import prepare_prophet_data, run_prophet_forecast
-            with custom_spinner("Training Prophet forecasting model...", icon="fa-chart-line", color="#c084fc", animation="fa-beat"):
+            with custom_spinner("Training forecasting model...", icon="fa-chart-line", color="#c084fc", animation="fa-beat"):
                 daily = prepare_prophet_data(df)
                 if len(daily) > 10:
                     model_prophet, forecast = run_prophet_forecast(daily, periods=30)
@@ -1944,7 +1962,7 @@ def page_analytics(data):
                                           xaxis_title="Date", yaxis_title="Violations")
                         st.plotly_chart(fig, use_container_width=True)
                     else:
-                        st.warning("Could not generate forecast. Ensure Prophet is installed.")
+                        st.warning("Could not generate forecast. Ensure forecasting library is installed.")
                 else:
                     st.warning("Insufficient data for forecasting.")
 

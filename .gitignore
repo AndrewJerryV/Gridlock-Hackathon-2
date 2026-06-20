@@ -1,0 +1,21 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Models (regenerated on training)
+models/
+
+# Processed data (regenerated from raw CSVs)
+data/processed_data.parquet
+
+# Large raw data file (>100MB, exceeds GitHub limit)
+jan to may police violation_anonymized791b166.csv
+
+# Generated outputs
+outputs/
+
+# Environment
+.venv/
+env/
+venv/
+*.env

@@ -2,19 +2,11 @@
 __pycache__/
 *.pyc
 
-# Models (regenerated on training)
-models/
+# Ignore large Random Forest model
+models/random_forest_model.pkl
 
-parkiq_pitch_script.md
-
-# Processed data (regenerated from raw CSVs)
-data/processed_data.parquet
-
-# Large raw data file (>100MB, exceeds GitHub limit)
+# Large raw data file
 jan to may police violation_anonymized791b166.csv
-
-# Generated outputs
-outputs/
 
 # Environment
 .venv/

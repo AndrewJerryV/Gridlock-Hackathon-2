@@ -624,7 +624,7 @@ def page_heatmap(data):
             ).add_to(m)
 
         folium.LayerControl(position='topright').add_to(m)
-        st_folium(m, use_container_width=True, height=550, key="hotspot_map", returned_objects=[])
+        st.components.v1.html(m._repr_html_(), height=550)
 
         # Stats below map
         col1, col2, col3 = st.columns(3)
@@ -697,7 +697,7 @@ def page_heatmap(data):
                 ).add_to(m2)
 
         folium.LayerControl(position='topright').add_to(m2)
-        st_folium(m2, use_container_width=True, height=550, key="pcri_map", returned_objects=[])
+        st.components.v1.html(m2._repr_html_(), height=550)
 
         # Top 10 PCRI areas
         if len(data["area_pcri"]) > 0:
@@ -1142,7 +1142,7 @@ def page_prediction(data):
                     weight=1,
                 ).add_to(m_traffic)
             
-            st_folium(m_traffic, width=None, height=500, key="live_traffic_map", returned_objects=[])
+            st.components.v1.html(m_traffic._repr_html_(), height=500)
             
             # Live Traffic Metrics
             var = st.session_state.get("traffic_variance", 1.0)

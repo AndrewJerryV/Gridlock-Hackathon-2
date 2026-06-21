@@ -624,7 +624,7 @@ def page_heatmap(data):
             ).add_to(m)
 
         folium.LayerControl(position='topright').add_to(m)
-        st_folium(m, width=None, height=550, returned_objects=[])
+        st_folium(m, use_container_width=True, height=550, key="hotspot_map", returned_objects=[])
 
         # Stats below map
         col1, col2, col3 = st.columns(3)
@@ -671,7 +671,7 @@ def page_heatmap(data):
                 if pcri_val > 66:
                     colour = "#ef4444"
                 elif pcri_val > 33:
-                    colour = "#f59e0b"
+                     colour = "#f59e0b"
                 else:
                     colour = "#22c55e"
 
@@ -697,7 +697,7 @@ def page_heatmap(data):
                 ).add_to(m2)
 
         folium.LayerControl(position='topright').add_to(m2)
-        st_folium(m2, width=None, height=550, returned_objects=[])
+        st_folium(m2, use_container_width=True, height=550, key="pcri_map", returned_objects=[])
 
         # Top 10 PCRI areas
         if len(data["area_pcri"]) > 0:
